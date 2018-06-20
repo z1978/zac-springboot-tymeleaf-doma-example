@@ -1,9 +1,11 @@
 buildscript {
 	ext {
-		springBootVersion = '2.0.3.RELEASE'
+		springBootVersion = '1.4.1.RELEASE'
 	}
 	repositories {
 		mavenCentral()
+		maven { url "https://repo.spring.io/snapshot" }
+		maven { url "https://repo.spring.io/milestone" }
 	}
 	dependencies {
 		classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
@@ -11,25 +13,104 @@ buildscript {
 }
 
 apply plugin: 'java'
-apply plugin: 'eclipse-wtp'
-apply plugin: 'org.springframework.boot'
-apply plugin: 'io.spring.dependency-management'
-apply plugin: 'war'
+apply plugin: 'eclipse'
+apply plugin: 'spring-boot'
 
-group = 'com.zac.example'
-version = '1.4.1-SNAPSHOT'
+jar {
+	baseName = 'demo'
+	version = '0.0.1-SNAPSHOT'
+}
 sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+// ==========　▼Doma用の設定ここから▼　==========
+// Doma-Genで出力するJavaクラスとSQLファイルの出力先ディレクトリを同じにする
+processResources.destinationDir = compileJava.destinationDir
+// Doma-Genでコンパイルより前にSQLファイルを出力先ディレクトリにコピーするために依存関係を逆転する
+compileJava.dependsOn processResources
+// Doma-Gen用の追加定義
+configurations {
+    domaGenRuntime
+}
+// ==========　▲Doma用の設定ここまで▲　==========
 
 repositories {
 	mavenCentral()
+	maven { url "https://repo.spring.io/snapshot" }
+	maven { url "https://repo.spring.io/milestone" }
+	
+	// ==========　▼Doma用の設定ここから▼　==========
+	// Doma関連リポジトリ
+	maven {url 'https://oss.sonatype.org/content/repositories/snapshots/'}
+	// ==========　▲Doma用の設定ここまで▲　==========
 }
 
-configurations {
-	providedRuntime
-}
 
 dependencies {
+	compile('org.springframework.boot:spring-boot-devtools')
 	compile('org.springframework.boot:spring-boot-starter-web')
-	providedRuntime('org.springframework.boot:spring-boot-starter-tomcat')
+	compile('org.springframework.boot:spring-boot-starter-security')
+	compile('org.springframework.boot:spring-boot-starter-aop')
+	compile('org.springframework.boot:spring-boot-starter-thymeleaf')
+	compile('net.sourceforge.nekohtml:nekohtml')
+	runtime('mysql:mysql-connector-java')
 	testCompile('org.springframework.boot:spring-boot-starter-test')
+	
+	// ==========　▼Doma用の設定ここから▼　==========
+	// Spring Boot-Doma連携用
+	compile('org.seasar.doma.boot:doma-spring-boot-starter:1.1.0')
+	// Doma-Gen本体
+	domaGenRuntime('org.seasar.doma:doma-gen:2.12.1')
+	// Doma-GenでMySQL接続用
+	domaGenRuntime('mysql:mysql-connector-java')
+	// ==========　▲Doma用の設定ここまで▲　==========
 }
+
+eclipse {
+	classpath {
+		 containers.remove('org.eclipse.jdt.launching.JRE_CONTAINER')
+		 containers 'org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8'
+	}
+}
+
+// ==========　▼Doma用の設定ここから▼　==========
+//　▼環境に応じて設定変更ここから▼
+def rootPackageName  = 'com.example.demo'
+def daoPackagePath   = 'src/main/java/com/example/dao'
+def dbUrl            = 'jdbc:mysql://localhost:3306/sample_db'
+def dbUser           = 'test_user'
+def dbPassword       = 'hogehoge'
+def tableNamePattern = '.*'
+def daoTempPath = 'temp/dao'
+//　▲環境に応じて設定変更ここまで▲
+
+// Doma-Gen実行用タスク
+task domaGen << {
+    // Dao インターフェース、Entity クラスを生成する
+    ant.taskdef(resource: 'domagentask.properties', classpath: configurations.domaGenRuntime.asPath)
+    ant.gen(url: "${dbUrl}", user: "${dbUser}", password: "${dbPassword}", tableNamePattern: "${tableNamePattern}", templatePrimaryDir: 'lib') {
+        entityConfig(packageName: "${rootPackageName}.entity", useListener: false, overwrite: true)
+        daoConfig(packageName: "${rootPackageName}.dao", overwrite: true)
+        sqlConfig(overwrite: true)
+    }
+    
+    // 生成された Dao インターフェースを一時ディレクトリにコピーし、@ConfigAutowireable アノテーションを付加する
+    copy() {
+        from "${daoPackagePath}"
+        into "${daoTempPath}"
+        filter {
+            line -> line.replaceAll('import org.seasar.doma.Dao;', "import org.seasar.doma.boot.ConfigAutowireable;\nimport org.seasar.doma.Dao;")
+                    .replaceAll('@Dao', '@Dao\n@ConfigAutowireable')
+        }
+    }
+    
+    // アノテーションを付加した Dao インターフェースを dao パッケージへ戻す
+    copy() {
+        from "${daoTempPath}"
+        into "${daoPackagePath}"
+    }
+    
+    // 一時ディレクトリを削除する
+    delete "${daoTempPath}"
+}
+// ==========　▲Doma用の設定ここまで▲　==========

@@ -1,0 +1,23 @@
+spring:
+  mvc:
+    favicon:
+      enabled: true
+  datasource:
+    url: jdbc:mysql://localhost:3306/sample_db
+    username: test_user
+    password: hogehoge
+    driver-class-name: com.mysql.jdbc.Driver
+  thymeleaf:
+    cache: false
+    mode: LEGACYHTML5
+doma:
+  dialect: mysql
+  sql-file-repository: no-cache
+security:
+  enable-csrf: true  
+logging:
+  file: ./log/ExampleApplication_${PID}.log
+  level:
+    root: error
+    com.example: debug
+    org.springframework.security: debug
